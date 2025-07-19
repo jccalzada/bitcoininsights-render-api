@@ -698,23 +698,6 @@ def funding_rates():
             "status": "error",
             "error": str(e)
         })
-
-            {
-                "exchange": "Bitget",
-                "funding_rate": 0.0091,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "HTX",
-                "funding_rate": 0.0083,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "CME",
-                "funding_rate": 0.0000,  # CME doesn't have funding rates
-                "next_funding_time": 0
-            }
-        ]
         
         return jsonify({
             "code": "0",
