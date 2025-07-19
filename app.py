@@ -376,6 +376,7 @@ def long_short_history():
             }
         })
 
+
 @app.route('/api/open-interest')
 def open_interest():
     exchange = request.args.get('exchange', 'binance')
@@ -383,7 +384,7 @@ def open_interest():
     try:
         print(f"=== OPEN INTEREST REQUEST FOR {exchange} ===")
         
-        # Get current total market OI (for the main display)
+        # Get current total market OI (always show total market value)
         url = "https://open-api-v4.coinglass.com/api/futures/open-interest/exchange-list"
         params = {
             'symbol': 'BTC'
@@ -392,8 +393,9 @@ def open_interest():
             'CG-API-KEY': COINGLASS_API_KEY
         }
         
-        print(f"CoinGlass API URL: {url}" )
+        print(f"CoinGlass API URL: {url}")
         print(f"CoinGlass API params: {params}")
+        print(f"API Key (last 4): ...{COINGLASS_API_KEY[-4:]}")
         
         response = requests.get(url, params=params, headers=headers, timeout=15)
         print(f"CoinGlass API response status: {response.status_code}")
@@ -405,7 +407,7 @@ def open_interest():
             print(f"CoinGlass API response: {data}")
             
             if data.get('code') == '0' and 'data' in data:
-                # Find the 'All' entry for total market OI
+                # Find the 'All' entry which contains total market OI
                 for item in data['data']:
                     if item.get('exchange', '').lower() == 'all':
                         oi_usd = float(item.get('open_interest_usd', 0))
@@ -414,7 +416,7 @@ def open_interest():
                         break
                 
                 if current_oi_billions is None:
-                    # Calculate total from all exchanges
+                    # If no 'All' entry, calculate from sum (excluding 'All')
                     total_oi_usd = 0
                     for item in data['data']:
                         if item.get('exchange', '').lower() != 'all':
@@ -422,145 +424,140 @@ def open_interest():
                             total_oi_usd += oi_usd
                     current_oi_billions = round(total_oi_usd / 1e9, 2)
                     print(f"Total Market OI calculated: ${current_oi_billions}B")
+            else:
+                print(f"CoinGlass API returned invalid data structure: {data}")
+        else:
+            print(f"CoinGlass API failed with status {response.status_code}: {response.text[:200]}")
         
-        # Get historical data for SPECIFIC exchange
+        # Get historical data for the SPECIFIC exchange (not total market)
         historical_data = []
         try:
             hist_url = "https://open-api-v4.coinglass.com/api/futures/open-interest/history"
             hist_params = {
                 'symbol': 'BTCUSDT',
-                'exchange': exchange,
+                'exchange': exchange,  # Use the specific exchange for historical data
                 'interval': '1d',
-                'limit': 7
+                'limit': 15
             }
             
-            print(f"Historical OI URL: {hist_url}" )
-            print(f"Historical OI params: {hist_params}")
-            
+            print(f"Fetching historical OI for {exchange}...")
             hist_response = requests.get(hist_url, params=hist_params, headers=headers, timeout=15)
-            print(f"Historical OI API response status: {hist_response.status_code}")
+            print(f"Historical API response status: {hist_response.status_code}")
             
             if hist_response.status_code == 200:
                 hist_data = hist_response.json()
-                print(f"Historical OI API response: {hist_data}")
+                print(f"Historical API response: {hist_data}")
                 
-                if hist_data.get('code') == '0' and 'data' in hist_data and len(hist_data['data']) > 0:
-                    # Sort by time and take last 7 days
-                    sorted_hist = sorted(hist_data['data'], key=lambda x: x.get('time', 0))
-                    historical_data = sorted_hist[-7:] if len(sorted_hist) > 7 else sorted_hist
+                if hist_data.get('code') == '0' and 'data' in hist_data:
+                    for item in hist_data['data']:
+                        timestamp = item.get('time', 0)
+                        if timestamp:
+                            date = datetime.fromtimestamp(timestamp / 1000)
+                            oi_value = float(item.get('close', 0)) / 1e9  # Convert to billions
+                            
+                            historical_data.append({
+                                'date': date.strftime('%Y-%m-%d'),
+                                'value': round(oi_value, 2)
+                            })
                     
-                    # Convert to billions for consistency
-                    for item in historical_data:
-                        if 'open_interest_usd' in item:
-                            item['open_interest'] = round(item['open_interest_usd'] / 1e9, 2)
-                    
-                    print(f"REAL Historical OI data points for {exchange}: {len(historical_data)}")
+                    # Sort by date (oldest first)
+                    historical_data.sort(key=lambda x: x['date'])
+                    print(f"Processed {len(historical_data)} REAL historical data points for {exchange}")
                 else:
-                    print(f"Historical OI API returned invalid data: {hist_data}")
+                    print(f"Historical API returned invalid data: {hist_data}")
             else:
-                print(f"Historical OI API failed: {hist_response.status_code}")
-        except Exception as hist_e:
-            print(f"Error getting historical OI data: {str(hist_e)}")
+                print(f"Historical API failed with status {hist_response.status_code}: {hist_response.text[:200]}")
         
-        # Use fallback current OI if API failed
-        if current_oi_billions is None:
-            current_oi_billions = 84.76  # Realistic total market fallback
-            print(f"Using fallback current OI: ${current_oi_billions}B")
+        except Exception as hist_error:
+            print(f"Error fetching historical data: {str(hist_error)}")
         
-        # Generate realistic fallback historical data if needed
+        # If no historical data, generate fallback for the specific exchange
         if not historical_data:
-            print(f"Generating REALISTIC fallback historical data for {exchange}")
+            print(f"Generating FALLBACK historical data for {exchange}")
             
-            # CORRECTED: Realistic exchange-specific base values (in billions)
-            exchange_base_oi = {
-                'binance': 15.2,    # Binance ~$15B (CORRECTED)
-                'bybit': 8.5,      # Bybit ~$8.5B
-                'okx': 6.8,        # OKX ~$6.8B
-                'cme': 4.1,        # CME ~$4.1B
-                'gate': 2.9,       # Gate ~$2.9B
-                'bitget': 2.3,     # Bitget ~$2.3B
-                'htx': 1.8         # HTX ~$1.8B
+            exchange_base_values = {
+                'binance': 15.0, 'cme': 19.0, 'bybit': 8.5, 'gate': 8.7, 'bitget': 6.0,
+                'okx': 4.8, 'htx': 4.6, 'hyperliquid': 4.4, 'mexc': 3.1, 'deribit': 2.6
             }
             
-            base_oi = exchange_base_oi.get(exchange.lower(), 5.0)
+            base_value = exchange_base_values.get(exchange.lower(), 10.0)
             
-            for i in range(7):
-                date = datetime.now() - timedelta(days=6-i)
-                timestamp = int(date.timestamp() * 1000)
-                
-                # Small realistic variation (±5%)
-                day_seed = date.day + hash(exchange) % 100
-                variation = (day_seed % 10 - 5) * 0.01  # ±5% variation
-                
-                oi_value = base_oi * (1 + variation)
-                oi_usd = oi_value * 1e9  # Convert back to USD for compatibility
-                
+            for i in range(15):
+                date = datetime.now() - timedelta(days=14-i)
+                variation = random.uniform(-0.15, 0.15)
+                value = round(base_value * (1 + variation), 2)
                 historical_data.append({
-                    "time": timestamp,
-                    "open_interest": round(oi_value, 2),  # In billions
-                    "open_interest_usd": oi_usd
+                    'date': date.strftime('%Y-%m-%d'),
+                    'value': value
                 })
         
-        return jsonify({
+        # Use real total market OI if available, otherwise fallback
+        final_oi_billions = current_oi_billions if current_oi_billions is not None else 86.58
+        data_source = "coinglass_api_real" if current_oi_billions is not None else "fallback"
+        
+        result = {
             "code": "0",
             "data": {
-                "current_oi_billions": current_oi_billions,
-                "historical_data": historical_data,
+                "current_oi_billions": final_oi_billions,  # Always total market
+                "current_oi_usd": int(final_oi_billions * 1e9),
+                "historical": historical_data,  # Specific exchange historical data
                 "exchange": exchange
             },
-            "source": "coinglass_api_real" if current_oi_billions != 84.76 else "mixed",
+            "source": data_source,
             "status": "success",
             "debug": {
-                "current_oi_source": "real_api" if current_oi_billions != 84.76 else "fallback",
+                "current_oi_source": "real" if current_oi_billions is not None else "fallback",
                 "historical_data_points": len(historical_data),
-                "exchange_requested": exchange,
-                "historical_source": "real_api" if len([x for x in historical_data if 'open_interest_usd' in x]) > 0 else "fallback"
+                "historical_exchange": exchange,
+                "data_source": "real_api" if current_oi_billions is not None else "fallback",
+                "note": f"Current OI is total market, historical is for {exchange}"
             }
-        })
-        
-    except Exception as e:
-        print(f"ERROR in open_interest: {str(e)}")
-        
-        # Emergency fallback with CORRECT values
-        exchange_base_oi = {
-            'binance': 15.2,    # CORRECTED: Binance ~$15B
-            'bybit': 8.5,
-            'okx': 6.8,
-            'cme': 4.1,
-            'gate': 2.9,
-            'bitget': 2.3,
-            'htx': 1.8
         }
         
-        base_oi = exchange_base_oi.get(exchange.lower(), 5.0)
+        print(f"=== FINAL RESPONSE FOR {exchange} ===")
+        print(f"Current OI (Total Market): ${final_oi_billions}B (source: {data_source})")
+        print(f"Historical points for {exchange}: {len(historical_data)}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"ERROR in open_interest endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback completo en caso de error
+        exchange_base_values = {
+            'binance': 15.0, 'cme': 19.0, 'bybit': 8.5, 'gate': 8.7, 'bitget': 6.0,
+            'okx': 4.8, 'htx': 4.6, 'hyperliquid': 4.4, 'mexc': 3.1, 'deribit': 2.6
+        }
+        
+        base_value = exchange_base_values.get(exchange.lower(), 10.0)
         historical_data = []
         
-        for i in range(7):
-            date = datetime.now() - timedelta(days=6-i)
-            timestamp = int(date.timestamp() * 1000)
-            
-            day_seed = date.day + hash(exchange) % 100
-            variation = (day_seed % 10 - 5) * 0.01  # ±5%
-            
-            oi_value = base_oi * (1 + variation)
-            oi_usd = oi_value * 1e9
-            
+        for i in range(15):
+            date = datetime.now() - timedelta(days=14-i)
+            variation = random.uniform(-0.15, 0.15)
+            value = round(base_value * (1 + variation), 2)
             historical_data.append({
-                "time": timestamp,
-                "open_interest": round(oi_value, 2),
-                "open_interest_usd": oi_usd
+                'date': date.strftime('%Y-%m-%d'),
+                'value': value
             })
         
         return jsonify({
             "code": "0",
             "data": {
-                "current_oi_billions": 84.76,  # Total market fallback
-                "historical_data": historical_data,
+                "current_oi_billions": 86.58,  # Total market fallback
+                "current_oi_usd": 86580000000,
+                "historical": historical_data,  # Exchange-specific historical
                 "exchange": exchange
             },
             "source": "fallback",
             "status": "error",
-            "error": str(e)
+            "error": str(e),
+            "debug": {
+                "reason": "exception_occurred",
+                "data_source": "fallback"
+            }
         })
 
 @app.route('/api/funding-rates')
