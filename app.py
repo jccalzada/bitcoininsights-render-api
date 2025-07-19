@@ -562,76 +562,89 @@ def open_interest():
 
 @app.route('/api/funding-rates')
 def funding_rates():
+    """REAL Funding Rates using correct CoinGlass endpoint"""
     try:
-        print("=== FUNDING RATES REQUEST ===")
+        print("=== FUNDING RATES REQUEST (REAL ENDPOINT) ===")
         
-        # Try to get real funding rates from CoinGlass
-        url = "https://open-api-v4.coinglass.com/api/futures/funding-rate/exchange-list"
-        params = {
-            'symbol': 'BTCUSDT'
-        }
-        headers = {
-            'CG-API-KEY': COINGLASS_API_KEY
-        }
+        # Major exchanges to get funding rates from
+        exchanges = ['Binance', 'OKX', 'Bybit', 'Gate', 'Bitget', 'HTX']
+        funding_data = []
         
-        print(f"CoinGlass Funding API URL: {url}" )
-        print(f"CoinGlass Funding API params: {params}")
-        
-        response = requests.get(url, params=params, headers=headers, timeout=15)
-        print(f"CoinGlass Funding API response status: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"CoinGlass Funding API response: {len(data.get('data', []))} items")
-            
-            if data.get('code') == '0' and 'data' in data and len(data['data']) > 0:
-                # FILTER only major exchanges
-                major_exchanges = ['Binance', 'Bybit', 'OKX', 'Gate.io', 'Bitget', 'HTX', 'CME']
-                funding_data = []
+        for exchange in exchanges:
+            try:
+                print(f"Fetching funding rate for {exchange}...")
                 
-                for item in data['data']:
-                    exchange_name = item.get('exchange', 'Unknown')
+                # Use the CORRECT endpoint from your HOBBYIST plan
+                url = "https://open-api-v4.coinglass.com/api/futures/funding-rate/history"
+                params = {
+                    'exchange': exchange,
+                    'symbol': 'BTCUSDT',
+                    'interval': '8h',  # 8h interval (supported in HOBBYIST )
+                    'limit': 1  # Only get the latest funding rate
+                }
+                headers = {
+                    'CG-API-KEY': COINGLASS_API_KEY
+                }
+                
+                response = requests.get(url, params=params, headers=headers, timeout=10)
+                print(f"{exchange} API response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
                     
-                    # Only include major exchanges
-                    if exchange_name in major_exchanges:
-                        funding_rate = float(item.get('funding_rate', 0))
-                        next_funding = item.get('next_funding_time', 0)
+                    if data.get('code') == '0' and 'data' in data and len(data['data']) > 0:
+                        # Get the latest funding rate (most recent)
+                        latest = data['data'][-1]  # Last item is most recent
+                        
+                        # Extract the 'close' value (current funding rate)
+                        funding_rate = float(latest.get('close', 0))
+                        
+                        # Convert to percentage (CoinGlass returns decimal)
+                        funding_rate_pct = round(funding_rate * 100, 4)
+                        
+                        # Calculate next funding time (8 hours from now)
+                        next_funding_time = int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
                         
                         funding_data.append({
-                            "exchange": exchange_name,
-                            "funding_rate": funding_rate,
-                            "next_funding_time": next_funding
+                            "exchange": exchange,
+                            "funding_rate": funding_rate_pct,
+                            "next_funding_time": next_funding_time
                         })
-                
-                print(f"Returning FILTERED funding rates data: {len(funding_data)} exchanges")
-                
-                # If we got some real data, return it
-                if len(funding_data) > 0:
-                    return jsonify({
-                        "code": "0",
-                        "data": funding_data,
-                        "source": "coinglass_api_real_filtered",
-                        "status": "success"
-                    })
+                        
+                        print(f"{exchange} funding rate: {funding_rate_pct}%")
+                    else:
+                        print(f"{exchange} API returned invalid data: {data}")
                 else:
-                    print("No major exchanges found in API response")
-            else:
-                print(f"CoinGlass Funding API returned invalid data: {data}")
+                    print(f"{exchange} API failed: {response.status_code}")
+                
+                # Small delay to avoid rate limiting
+                time.sleep(0.2)
+                
+            except Exception as e:
+                print(f"Error fetching {exchange} funding rate: {str(e)}")
+                continue
+        
+        # If we got real data, return it
+        if funding_data:
+            print(f"Successfully fetched REAL funding rates for {len(funding_data)} exchanges")
+            return jsonify({
+                "code": "0",
+                "data": funding_data,
+                "source": "coinglass_api_real",
+                "status": "success"
+            })
         else:
-            print(f"CoinGlass Funding API failed: {response.status_code}")
+            print("No real data obtained, using fallback")
+            raise Exception("No real funding rate data available")
         
-        print("CoinGlass Funding API failed, using fallback data")
+    except Exception as e:
+        print(f"ERROR in funding_rates: {str(e)}")
         
-        # Fallback data only when API fails
-        funding_data = [
+        # Fallback data with realistic values
+        fallback_rates = [
             {
                 "exchange": "Binance",
                 "funding_rate": 0.0085,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "Bybit",
-                "funding_rate": 0.0092,
                 "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
             },
             {
@@ -640,84 +653,23 @@ def funding_rates():
                 "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
             },
             {
-                "exchange": "Gate.io",
-                "funding_rate": 0.0088,
+                "exchange": "Bybit",
+                "funding_rate": 0.0092,
+                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
+            },
+            {
+                "exchange": "Gate",
+                "funding_rate": 0.0081,
                 "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
             },
             {
                 "exchange": "Bitget",
-                "funding_rate": 0.0091,
+                "funding_rate": 0.0089,
                 "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
             },
             {
                 "exchange": "HTX",
                 "funding_rate": 0.0083,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            }
-        ]
-        
-        return jsonify({
-            "code": "0",
-            "data": funding_data,
-            "source": "fallback",
-            "status": "success"
-        })
-        
-    except Exception as e:
-        print(f"ERROR in funding_rates: {str(e)}")
-        
-        # Fallback data on error
-        fallback_rates = [
-            {
-                "exchange": "Binance",
-                "funding_rate": 0.0085,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "Bybit",
-                "funding_rate": 0.0092,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "OKX",
-                "funding_rate": 0.0078,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            }
-        ]
-        
-        return jsonify({
-            "code": "0",
-            "data": fallback_rates,
-            "source": "fallback",
-            "status": "error",
-            "error": str(e)
-        })
-        
-        return jsonify({
-            "code": "0",
-            "data": funding_data,
-            "source": "fallback",
-            "status": "success"
-        })
-        
-    except Exception as e:
-        print(f"ERROR in funding_rates: {str(e)}")
-        
-        # Fallback data on error
-        fallback_rates = [
-            {
-                "exchange": "Binance",
-                "funding_rate": 0.0085,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "Bybit",
-                "funding_rate": 0.0092,
-                "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
-            },
-            {
-                "exchange": "OKX",
-                "funding_rate": 0.0078,
                 "next_funding_time": int((datetime.now() + timedelta(hours=8)).timestamp() * 1000)
             }
         ]
