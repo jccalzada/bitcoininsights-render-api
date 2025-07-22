@@ -1286,6 +1286,49 @@ def get_fallback_institutional_chart(period):
         })
     
     return chart_data
-
+@app.route('/api/institutional-data', methods=['GET'])
+def get_institutional_data():
+    """
+    Endpoint para datos de adopción institucional
+    """
+    try:
+        period = request.args.get('period', '1y').lower()
+        
+        print(f"=== INSTITUTIONAL REQUEST FOR {period.upper()} ===")
+        
+        # Datos de respuesta simplificados para probar
+        response_data = {
+            'code': '0',
+            'data': {
+                'metrics': {
+                    'total_etf_holdings_btc': 875432,
+                    'net_etf_flows_btc': 24.2,
+                    'grayscale_holdings_btc': 632230,
+                    'yoy_growth_percent': 38.8
+                },
+                'chart_data': [
+                    {'date': 1721606400000, 'value': 650000, 'usd_value': 32500000000},
+                    {'date': 1724284800000, 'value': 700000, 'usd_value': 35000000000},
+                    {'date': 1726963200000, 'value': 750000, 'usd_value': 37500000000},
+                    {'date': 1729641600000, 'value': 800000, 'usd_value': 40000000000},
+                    {'date': 1732320000000, 'value': 875432, 'usd_value': 43771600000}
+                ],
+                'period': period,
+                'last_updated': int(time.time() * 1000)
+            },
+            'source': 'test_endpoint',
+            'status': 'success'
+        }
+        
+        print(f"✅ Institutional data returned for {period}")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"❌ Error in institutional endpoint: {str(e)}")
+        return jsonify({
+            'code': '1',
+            'error': str(e),
+            'status': 'error'
+        }), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), debug=True)
