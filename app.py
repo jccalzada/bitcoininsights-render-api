@@ -974,7 +974,7 @@ def asset_performance_historical_real():
             "error": str(e)
         })
 
-@app.route('/api/institutional-data', methods=['GET'])
+@app.route('/api/institutional-test', methods=['GET'])
 def institutional_adoption_data():
     """
     Endpoint para datos de adopción institucional - VERSIÓN SIMPLIFICADA
