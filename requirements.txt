@@ -1,4 +1,4 @@
-FFlask==2.3.3
+Flask==2.3.3
 Flask-CORS==4.0.0
 requests==2.31.0
 boto3==1.34.131
